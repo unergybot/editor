@@ -71,3 +71,59 @@ import examples from './authoring-protocol.examples.json'
 test('matches the shared committed protocol examples', () => {
   for (const example of examples) expect(isAuthoringEnvelope(example.message)).toBe(example.valid)
 })
+
+test('normalization holds the edit lock and preserves permission loss on completion', async () => {
+  const access: boolean[] = []
+  const parent = { postMessage: () => {} }
+  let complete!: (value: Uint8Array) => void
+  const host = createHostSession({
+    parentOrigin: origin,
+    parent: parent as unknown as Window,
+    load: async () => {},
+    snapshot: () => ({
+      source: new TextEncoder().encode('{}'),
+      sidecar: new TextEncoder().encode('{}'),
+    }),
+    setReadOnly: (value) => access.push(value),
+    select: () => {},
+    normalize: async () =>
+      new Promise<Uint8Array>((resolve) => {
+        complete = resolve
+      }),
+  })
+  const channel = new MessageChannel()
+  const received: any[] = []
+  channel.port1.onmessage = (event) => received.push(event.data)
+  const event = (data: unknown, ports: MessagePort[] = []) =>
+    ({ data, source: parent, origin, ports }) as unknown as MessageEvent
+  host.receiveBootstrap(event(packet('session', 'hello', 'READY', { phase: 'HELLO' })))
+  host.receiveBootstrap(
+    event(packet('session', 'hello', 'READY', { phase: 'CONNECT' }), [channel.port2]),
+  )
+  channel.port1.postMessage(
+    packet('session', 'load', 'LOAD', {
+      phase: 'DOCUMENT',
+      source: null,
+      sidecar: new TextEncoder().encode('{}'),
+      editorCommit: EDITOR_COMMIT,
+      readOnly: false,
+    }),
+  )
+  await pause()
+  channel.port1.postMessage(
+    packet('session', 'normalize', 'NORMALIZE', {
+      sourceSha256: 'a'.repeat(64),
+      sidecarSha256: 'b'.repeat(64),
+    }),
+  )
+  await pause()
+  expect(access.at(-1)).toBe(true)
+  channel.port1.postMessage(packet('session', 'deny', 'LOAD', { phase: 'ACCESS', readOnly: true }))
+  await pause()
+  complete(new TextEncoder().encode('{}'))
+  await pause()
+  expect(access.at(-1)).toBe(true)
+  expect(received.some((message) => message.type === 'NORMALIZED')).toBe(true)
+  host.dispose()
+  channel.port1.close()
+})

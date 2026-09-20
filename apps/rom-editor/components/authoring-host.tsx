@@ -6,6 +6,8 @@ import { useViewer } from '@pascal-app/viewer'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createTwoRoomFixture } from '../lib/fixture'
 import { createHostSession } from '../lib/host-session'
+import { captureNormalizationSnapshot } from '../lib/normalization-snapshot'
+import { normalizeStructure } from '../lib/normalize-structure'
 import { RomEditor, snapshotScene } from './rom-editor'
 
 function parseGraph(source: Uint8Array | null): SceneGraph {
@@ -45,6 +47,10 @@ export function AuthoringHost({ parentOrigin }: { parentOrigin: string }) {
   const sidecar = useRef(new TextEncoder().encode('{}'))
   useEffect(() => {
     if (window.parent === window) return
+    const documents = () => ({
+      source: new TextEncoder().encode(JSON.stringify(snapshotScene())),
+      sidecar: sidecar.current.slice(),
+    })
     const host = createHostSession({
       parentOrigin,
       parent: window.parent,
@@ -62,10 +68,13 @@ export function AuthoringHost({ parentOrigin }: { parentOrigin: string }) {
           setGraph(parsed)
         })
       },
-      snapshot: () => ({
-        source: new TextEncoder().encode(JSON.stringify(snapshotScene())),
-        sidecar: sidecar.current.slice(),
-      }),
+      snapshot: documents,
+      normalize: async (expected, signal) =>
+        new TextEncoder().encode(
+          JSON.stringify(
+            normalizeStructure(await captureNormalizationSnapshot(expected, signal, documents)),
+          ),
+        ),
       setReadOnly: (value) => {
         useScene.getState().setReadOnly(value)
         setReadOnly(value)

@@ -56,7 +56,7 @@ export function createTwoRoomFixture(): SceneGraph {
     parentId: 'wall_partition',
     openingKind: 'opening',
     openingShape: 'rectangle',
-    position: [0, 1.1, 0],
+    position: [3, 1.1, 0],
     width: 1.5,
     height: 2.2,
   })

@@ -15,14 +15,17 @@ interface Options {
   snapshot: () => DraftDocuments
   setReadOnly: (value: boolean) => void
   select: (sourceId: string) => void
+  normalize?: (expected: Payloads['NORMALIZE'], signal: AbortSignal) => Promise<Uint8Array>
 }
 export function createHostSession(options: Options) {
   let nonce = '',
     helloId = '',
     disposed = false,
     loaded = false,
+    normalizing = false,
     readOnly = true
   let port: MessagePort | undefined
+  const normalizationAbort = new AbortController()
   const seen = new Set<string>()
   const pending = new Map<
     string,
@@ -56,7 +59,7 @@ export function createHostSession(options: Options) {
       if (message.type === 'LOAD') {
         if (message.payload.phase === 'ACCESS') {
           readOnly = message.payload.readOnly
-          options.setReadOnly(readOnly)
+          options.setReadOnly(readOnly || normalizing)
           if (readOnly) rejectPending('DENIED')
         } else if (message.payload.phase === 'DOCUMENT' && !loaded) {
           // Keep edits locked until the store has finished hydrating the exact document.
@@ -72,8 +75,21 @@ export function createHostSession(options: Options) {
         if (readOnly) throw new Error('DENIED')
         send(packet(nonce, message.requestId, 'SAVE', cloneDocuments(options.snapshot())))
       } else if (loaded && message.type === 'SELECT') options.select(message.payload.sourceId)
-      else if (message.type === 'NORMALIZE')
-        send(packet(nonce, message.requestId, 'ERROR', { code: 'UNAVAILABLE' }))
+      else if (message.type === 'NORMALIZE') {
+        if (!loaded || normalizing || !options.normalize) {
+          send(packet(nonce, message.requestId, 'ERROR', { code: 'UNAVAILABLE' }))
+          return
+        }
+        normalizing = true
+        options.setReadOnly(true)
+        try {
+          const result = await options.normalize(message.payload, normalizationAbort.signal)
+          send(packet(nonce, message.requestId, 'NORMALIZED', { ...message.payload, result }))
+        } finally {
+          normalizing = false
+          if (!disposed) options.setReadOnly(readOnly)
+        }
+      }
     } catch {
       send(
         packet(nonce, message.requestId, 'ERROR', {
@@ -83,7 +99,7 @@ export function createHostSession(options: Options) {
     }
   }
   function change(type: 'CHANGED' | 'SAVE'): Promise<void> {
-    if (disposed || !loaded || readOnly)
+    if (disposed || !loaded || readOnly || normalizing)
       return Promise.reject(new Error(disposed ? 'DISPOSED' : 'DENIED'))
     const id = crypto.randomUUID()
     let message: Envelope
@@ -142,6 +158,7 @@ export function createHostSession(options: Options) {
       if (disposed) return
       disposed = true
       loaded = false
+      normalizationAbort.abort()
       port?.close()
       rejectPending('DISPOSED')
       seen.clear()
