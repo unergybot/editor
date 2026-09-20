@@ -124,7 +124,7 @@ export function RomEditor({
     [onChange, save],
   )
   return (
-    <div style={{ height: '100%', position: 'relative' }}>
+    <div style={{ height: '100%', position: 'relative', contain: 'layout', isolation: 'isolate' }}>
       <div
         style={{
           position: 'absolute',

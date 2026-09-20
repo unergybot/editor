@@ -8,6 +8,7 @@ import { createTwoRoomFixture } from '../lib/fixture'
 import { createHostSession } from '../lib/host-session'
 import { captureNormalizationSnapshot } from '../lib/normalization-snapshot'
 import { normalizeStructure } from '../lib/normalize-structure'
+import { RoboticsPanel } from './robotics-panel'
 import { RomEditor, snapshotScene } from './rom-editor'
 
 function parseGraph(source: Uint8Array | null): SceneGraph {
@@ -42,6 +43,7 @@ function parseGraph(source: Uint8Array | null): SceneGraph {
 export function AuthoringHost({ parentOrigin }: { parentOrigin: string }) {
   const [graph, setGraph] = useState<SceneGraph | null>(null)
   const [readOnly, setReadOnly] = useState(true)
+  const [metadata, setMetadata] = useState<unknown>({})
   const session = useRef<ReturnType<typeof createHostSession> | null>(null)
   const acknowledge = useRef<(() => void) | null>(null)
   const sidecar = useRef(new TextEncoder().encode('{}'))
@@ -63,6 +65,7 @@ export function AuthoringHost({ parentOrigin }: { parentOrigin: string }) {
         if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata))
           throw new Error('INVALID')
         sidecar.current = new Uint8Array(document.sidecar)
+        setMetadata(metadata)
         await new Promise<void>((resolve) => {
           acknowledge.current = resolve
           setGraph(parsed)
@@ -118,14 +121,23 @@ export function AuthoringHost({ parentOrigin }: { parentOrigin: string }) {
     acknowledge.current = null
   }, [])
   if (!graph) return <main role="status">Waiting for Scene Composer…</main>
+  const metadataChanged = async (value: unknown) => {
+    if (useScene.getState().readOnly || !session.current) throw new Error('DENIED')
+    sidecar.current = new TextEncoder().encode(JSON.stringify(value))
+    setMetadata(value)
+    await session.current.changed()
+  }
   return (
-    <RomEditor
-      projectId="rom-authoring"
-      onLoad={load}
-      onSave={save}
-      onChange={changed}
-      onHydrated={hydrated}
-      readOnly={readOnly}
-    />
+    <div style={{ height: '100%', display: 'grid', gridTemplateRows: 'minmax(0, 1fr) auto' }}>
+      <RomEditor
+        projectId="rom-authoring"
+        onLoad={load}
+        onSave={save}
+        onChange={changed}
+        onHydrated={hydrated}
+        readOnly={readOnly}
+      />
+      <RoboticsPanel value={metadata} readOnly={readOnly} onChange={metadataChanged} />
+    </div>
   )
 }
