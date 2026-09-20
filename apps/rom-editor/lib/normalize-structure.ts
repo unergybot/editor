@@ -2,6 +2,9 @@ import {
   BlockNode,
   calculateLevelMiters,
   DoorNode,
+  getRenderableSlabPolygon,
+  LevelNode,
+  slabPolygonContextForLevel,
   getWallPlanFootprint,
   getWallThickness,
   SlabNode,
@@ -185,21 +188,38 @@ export function normalizeStructure(snapshot: NormalizationSnapshot): Normalizati
       if (node.type === 'block' && role === 'STATIC_SOLID') parts = blockParts(node, matrix)
       else if (node.type === 'slab' && role === 'SUPPORT_SURFACE') {
         const slab = SlabNode.parse(node)
-        if (slab.holes.length || slab.recessed || slab.fillToTerrain || slab.polygon.length !== 4)
+        if (slab.holes.length || slab.recessed || slab.fillToTerrain)
           throw new Error('UNSUPPORTED_SLAB')
-        const xs = [...new Set(slab.polygon.map((p) => p[0]))],
-          zs = [...new Set(slab.polygon.map((p) => p[1]))]
-        if (
-          xs.length !== 2 ||
-          zs.length !== 2 ||
-          new Set(slab.polygon.map((p) => p.join(','))).size !== 4
-        )
-          throw new Error('UNSUPPORTED_SLAB')
+        const level = LevelNode.parse(snapshot.graph.nodes[slab.parentId!])
+        const context = slabPolygonContextForLevel(level, (childId) => {
+          const child = snapshot.graph.nodes[childId]
+          if (!record(child)) return undefined
+          if (child.type === 'wall') return WallNode.parse(child)
+          if (child.type === 'slab') return SlabNode.parse(child)
+          return undefined
+        })
+        context.siblingSlabs = context.siblingSlabs.filter((other) => other.id !== slab.id)
+        const polygon = getRenderableSlabPolygon(slab, context)
+        if (polygon.length !== 4) throw new Error('UNSUPPORTED_SLAB')
+        const xs = [Math.min(...polygon.map((p) => p[0])), Math.max(...polygon.map((p) => p[0]))]
+        const zs = [Math.min(...polygon.map((p) => p[1])), Math.max(...polygon.map((p) => p[1]))]
+        const corners = new Set<string>()
         for (let i = 0; i < 4; i++) {
-          const a = slab.polygon[i]!,
-            b = slab.polygon[(i + 1) % 4]!
-          if (a[0] !== b[0] && a[1] !== b[1]) throw new Error('UNSUPPORTED_SLAB')
+          const a = polygon[i]!,
+            b = polygon[(i + 1) % 4]!
+          const corner = [a[0], a[1]].map((value, axis) => {
+            const bounds = axis === 0 ? xs : zs
+            return Math.abs(value - bounds[0]!) <= EPS
+              ? 0
+              : Math.abs(value - bounds[1]!) <= EPS
+                ? 1
+                : -1
+          })
+          if (corner.includes(-1) || (Math.abs(a[0] - b[0]) > EPS && Math.abs(a[1] - b[1]) > EPS))
+            throw new Error('UNSUPPORTED_SLAB')
+          corners.add(corner.join(','))
         }
+        if (corners.size !== 4) throw new Error('UNSUPPORTED_SLAB')
         parts = [
           boxPart(
             'slab',

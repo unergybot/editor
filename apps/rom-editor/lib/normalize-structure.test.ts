@@ -110,7 +110,9 @@ test('emits open doorway sections, downward slab thickness and stable component 
   const slab = result.structure.objects.find((object) => object.sourceObjectId === 'slab_floor')!
     .parts[0]!
   expect(slab.center).toEqual([5, -3, -0.1])
-  expect(slab.size).toEqual([10, 6, 0.2])
+  expect(slab.size[0]).toBeCloseTo(10.2, 8)
+  expect(slab.size[1]).toBeCloseTo(6.2, 8)
+  expect(slab.size[2]).toBe(0.2)
   expect(
     result.structure.objects.find((object) => object.sourceObjectId === 'block_table_leg_0_0')!
       .parts[0]!.partId,
@@ -218,4 +220,26 @@ test('an oblique joined wall cannot use an oversized rectangular miter approxima
       (f) => f.code === 'UNSUPPORTED_WALL_JUNCTION' && f.sourceObjectId === 'wall_south',
     ),
   ).toBe(true)
+})
+
+test('support collider includes the shared rendered slab expansion at wall boundaries', () => {
+  const result = normalizeStructure(supportedSnapshot())
+  const slab = result.structure.objects.find((object) => object.sourceObjectId === 'slab_floor')!
+    .parts[0]!
+  expect(slab.size[0]).toBeCloseTo(10.2, 8)
+  expect(slab.size[1]).toBeCloseTo(6.2, 8)
+})
+
+test('a stepped rendered boundary is reported instead of compiled as its raw rectangle', () => {
+  const snapshot = supportedSnapshot()
+  ;(snapshot.graph.nodes.wall_north as { end: number[] }).end = [5, 6]
+  const result = normalizeStructure(snapshot)
+  expect(
+    result.findings.some(
+      (finding) => finding.sourceObjectId === 'slab_floor' && finding.code === 'UNSUPPORTED_SLAB',
+    ),
+  ).toBe(true)
+  expect(result.structure.objects.some((object) => object.sourceObjectId === 'slab_floor')).toBe(
+    false,
+  )
 })
