@@ -1,0 +1,7 @@
+[
+  {"valid":true,"message":{"protocol":"rom.authoring/v1","sessionId":"session","requestId":"hello","type":"READY","payload":{"phase":"HELLO"}}},
+  {"valid":true,"message":{"protocol":"rom.authoring/v1","sessionId":"session","requestId":"select","type":"SELECT","payload":{"sourceId":"wall_partition"}}},
+  {"valid":true,"message":{"protocol":"rom.authoring/v1","sessionId":"session","requestId":"save","type":"SAVE_FAILED","payload":{"code":"CONFLICT"}}},
+  {"valid":false,"message":{"protocol":"rom.authoring/v1","sessionId":"session","requestId":"proxy","type":"HTTP","payload":{"url":"/admin/api"}}},
+  {"valid":false,"message":{"protocol":"rom.authoring/v1","sessionId":"session","requestId":"authority","type":"LOAD","payload":{"phase":"ACK","tenantId":"other"}}}
+]
